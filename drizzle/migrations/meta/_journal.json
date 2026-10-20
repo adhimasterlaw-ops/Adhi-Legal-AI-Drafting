@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791080464257,
+      "tag": "0000_create_user_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791081608843,
+      "tag": "0001_create_legal_chat_threads",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791082199032,
+      "tag": "0002_create_contract_analyses",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791082812621,
+      "tag": "0003_create_legal_drafting",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791084479942,
+      "tag": "0004_add_legal_research_semantic_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791160313409,
+      "tag": "0005_add_private_document_library",
+      "breakpoints": true
+    }
+  ]
+}

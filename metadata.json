@@ -1,0 +1,6 @@
+{
+  "name": "Adhi Legal AI Indonesia",
+  "description": "Platform AI hukum Indonesia untuk analisis kontrak, perancangan draf dokumen hukum, dan riset regulasi.",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
