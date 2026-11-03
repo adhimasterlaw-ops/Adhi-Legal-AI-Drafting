@@ -30,21 +30,101 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
   };
 }
 
+export function isSupabaseConfigured(): boolean {
+  const url = import.meta.env["VITE_SUPABASE_URL"] || process.env["SUPABASE_URL"];
+  const key =
+    import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] || process.env["SUPABASE_PUBLISHABLE_KEY"];
+  return Boolean(url && key);
+}
+
+function createUnconfiguredQueryBuilder(): unknown {
+  const result = {
+    data: [],
+    error: {
+      message: "Layanan database belum dikonfigurasi (SUPABASE_URL belum disetel).",
+      code: "SERVICE_NOT_CONFIGURED",
+    },
+  };
+  const builder: unknown = new Proxy(() => {}, {
+    get(_, prop) {
+      if (prop === "then") {
+        return (resolve: (val: unknown) => void) => resolve(result);
+      }
+      if (prop === "catch") {
+        return () => Promise.resolve(result);
+      }
+      return () => builder;
+    },
+    apply() {
+      return builder;
+    },
+  });
+  return builder;
+}
+
+function createUnconfiguredSupabaseClient(): ReturnType<typeof createClient<Database>> {
+  console.warn(
+    "[Supabase] Mengaktifkan placeholder 'Service Not Configured' karena kredensial Supabase belum disetel.",
+  );
+
+  const authPlaceholder = {
+    getUser: async () => ({ data: { user: null }, error: null }),
+    getSession: async () => ({ data: { session: null }, error: null }),
+    onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+    signInWithPassword: async () => ({
+      data: { user: null, session: null },
+      error: {
+        message:
+          "Layanan autentikasi belum dikonfigurasi. Atur kredensial Supabase di environment.",
+      },
+    }),
+    signUp: async () => ({
+      data: { user: null, session: null },
+      error: {
+        message:
+          "Layanan autentikasi belum dikonfigurasi. Atur kredensial Supabase di environment.",
+      },
+    }),
+    signOut: async () => ({ error: null }),
+    resetPasswordForEmail: async () => ({
+      data: null,
+      error: { message: "Layanan autentikasi belum dikonfigurasi." },
+    }),
+    updateUser: async () => ({
+      data: { user: null },
+      error: { message: "Layanan autentikasi belum dikonfigurasi." },
+    }),
+  };
+
+  const storagePlaceholder = {
+    from: (_bucket: string) => ({
+      download: async () => ({
+        data: null,
+        error: { message: "Layanan penyimpanan dokumen belum dikonfigurasi." },
+      }),
+      upload: async () => ({
+        data: null,
+        error: { message: "Layanan penyimpanan dokumen belum dikonfigurasi." },
+      }),
+      remove: async () => ({ data: null, error: null }),
+      getPublicUrl: () => ({ data: { publicUrl: "" } }),
+    }),
+  };
+
+  return {
+    auth: authPlaceholder,
+    from: (_table: string) => createUnconfiguredQueryBuilder(),
+    storage: storagePlaceholder,
+  } as unknown as ReturnType<typeof createClient<Database>>;
+}
+
 function createSupabaseClient() {
-  // Use import.meta.env for client-side (Vite build-time replacement)
-  // Fall back to process.env for SSR (server-side rendering)
   const SUPABASE_URL = import.meta.env["VITE_SUPABASE_URL"] || process.env["SUPABASE_URL"];
   const SUPABASE_PUBLISHABLE_KEY =
     import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] || process.env["SUPABASE_PUBLISHABLE_KEY"];
 
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-    const missing = [
-      ...(!SUPABASE_URL ? ["SUPABASE_URL"] : []),
-      ...(!SUPABASE_PUBLISHABLE_KEY ? ["SUPABASE_PUBLISHABLE_KEY"] : []),
-    ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(", ")}. Connect Supabase in Lovable Cloud.`;
-    console.error(`[Supabase] ${message}`);
-    throw new Error(message);
+    return createUnconfiguredSupabaseClient();
   }
 
   return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {

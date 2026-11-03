@@ -1,5 +1,6 @@
 export function friendlyAuthError(message: string) {
   const value = message.toLowerCase();
+  if (value.includes("belum dikonfigurasi") || value.includes("not configured")) return message;
   if (value.includes("invalid login")) return "Email atau password salah.";
   if (value.includes("already registered") || value.includes("already been registered"))
     return "Email ini sudah terdaftar. Silakan login.";

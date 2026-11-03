@@ -262,6 +262,84 @@ function analyzeContractTextLocally(
   };
 }
 
+function chunkTextWithOverlap(text: string, maxChunkSize = 40000, overlap = 2000): string[] {
+  if (text.length <= maxChunkSize) {
+    return [text];
+  }
+  const chunks: string[] = [];
+  let startIndex = 0;
+  while (startIndex < text.length) {
+    let endIndex = Math.min(startIndex + maxChunkSize, text.length);
+    if (endIndex < text.length) {
+      const lastNewline = text.lastIndexOf("\n", endIndex);
+      if (lastNewline > startIndex + maxChunkSize / 2) {
+        endIndex = lastNewline + 1;
+      }
+    }
+    chunks.push(text.slice(startIndex, endIndex));
+    if (endIndex >= text.length) {
+      break;
+    }
+    startIndex = endIndex - overlap;
+  }
+  return chunks;
+}
+
+function mergeAnalyses(
+  analyses: z.infer<typeof analysisSchema>[],
+  fileName: string,
+): z.infer<typeof analysisSchema> {
+  if (analyses.length === 0) {
+    return {
+      summary: `Dokumen ${fileName} kosong atau gagal dianalisis.`,
+      riskPercentage: 0,
+      overallRisk: "low",
+      clauses: [],
+    };
+  }
+  if (analyses.length === 1) {
+    return analyses[0]!;
+  }
+
+  const clauseMap = new Map<string, ContractClause>();
+  for (const a of analyses) {
+    for (const c of a.clauses) {
+      const key = `${c.number}-${c.title}`.toLowerCase();
+      if (!clauseMap.has(key)) {
+        clauseMap.set(key, c);
+      }
+    }
+  }
+
+  const mergedClauses = Array.from(clauseMap.values());
+  const highCount = mergedClauses.filter((c) => c.risk === "high").length;
+  const mediumCount = mergedClauses.filter((c) => c.risk === "medium").length;
+  const lowCount = mergedClauses.filter((c) => c.risk === "low").length;
+
+  const avgPercentage = Math.round(
+    analyses.reduce((sum, a) => sum + a.riskPercentage, 0) / analyses.length,
+  );
+  const riskPercentage = Math.min(100, Math.max(0, avgPercentage));
+  const overallRisk: "high" | "medium" | "low" =
+    riskPercentage >= 60 || highCount >= 2
+      ? "high"
+      : riskPercentage >= 35 || mediumCount >= 2
+        ? "medium"
+        : "low";
+
+  const summaries = analyses.map((a) => a.summary).filter(Boolean);
+  const summary =
+    summaries[0] ||
+    `Hasil audit komprehensif atas dokumen "${fileName}" memuat ${mergedClauses.length} klausul utama dengan tingkat risiko keseluruhan ${overallRisk.toUpperCase()} (${riskPercentage}%).`;
+
+  return {
+    summary,
+    riskPercentage,
+    overallRisk,
+    clauses: mergedClauses,
+  };
+}
+
 export const analyzeContract = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) => pathInput.parse(data))
@@ -277,6 +355,16 @@ export const analyzeContract = createServerFn({ method: "POST" })
     ).trim();
     if (!extracted) throw new Error("Teks dokumen tidak terbaca. PDF hasil scan memerlukan OCR.");
 
+    const chunks = chunkTextWithOverlap(extracted, 40000, 2000);
+
+    console.log(
+      JSON.stringify({
+        diagnostic: "contract_analysis_chunking_check",
+        extractedTextLength: extracted.length,
+        totalChunks: chunks.length,
+      }),
+    );
+
     let analysis: z.infer<typeof analysisSchema> | null = null;
     const key = process.env["LOVABLE_API_KEY"];
 
@@ -288,31 +376,37 @@ export const analyzeContract = createServerFn({ method: "POST" })
           headers: { "Lovable-API-Key": key, "X-Lovable-AIG-SDK": "vercel-ai-sdk" },
           fetch: createGatewayFetch(),
         });
-        const result = streamText({
-          model: provider.responses("openai/gpt-6-astra"),
-          output: Output.object({ schema: analysisSchema }),
-          providerOptions: {
-            openai: {
-              forceReasoning: true,
-              reasoningEffort: "medium",
-              reasoningSummary: "auto",
-              store: false,
-              include: ["reasoning.encrypted_content"],
+
+        const chunkAnalyses: z.infer<typeof analysisSchema>[] = [];
+        for (let i = 0; i < chunks.length; i++) {
+          const chunkText = chunks[i]!;
+          const promptText = `Anda adalah analis kontrak profesional berdasarkan hukum Indonesia. Analisis bagian ${i + 1} dari ${chunks.length} dokumen kontrak berikut. Buat ringkasan eksekutif singkat, skor risiko 0-100, kategori keseluruhan high/medium/low, dan daftar klausul penting pada bagian ini. Untuk setiap klausul isi nomor, judul, kutipan teks, tingkat risiko, analisis 2-3 kalimat, saran revisi konkret, serta referensi hukum.\n\nDOKUMEN BAGIAN ${i + 1}/${chunks.length}:\n${chunkText}`;
+
+          const result = streamText({
+            model: provider.responses("openai/gpt-6-astra"),
+            output: Output.object({ schema: analysisSchema }),
+            providerOptions: {
+              openai: {
+                forceReasoning: true,
+                reasoningEffort: "medium",
+                reasoningSummary: "auto",
+                store: false,
+                include: ["reasoning.encrypted_content"],
+              },
             },
-          },
-          prompt: `Anda adalah analis kontrak profesional berdasarkan hukum Indonesia. Analisis teks kontrak berikut. Buat ringkasan eksekutif 3-4 kalimat, skor risiko 0-100, kategori keseluruhan high/medium/low, dan daftar maksimal 20 klausul terpenting. Untuk setiap klausul isi nomor, judul, kutipan teks, tingkat risiko, analisis 2-3 kalimat, saran revisi yang konkret, serta referensi hukum Indonesia yang relevan. Jangan mengarang kutipan pasal; jika tidak yakin, tulis referensi umum.\n\nDOKUMEN:\n${extracted.slice(0, 120000)}`,
-        });
-        analysis = await result.output;
-      } catch (error) {
-        if (NoObjectGeneratedError.isInstance(error) && error.text) {
-          try {
-            analysis = parseFallback(error.text);
-          } catch {
-            console.warn("AI output parse failed, falling back to local legal analyzer.");
+            prompt: promptText,
+          });
+          const partial = await result.output;
+          if (partial) {
+            chunkAnalyses.push(partial);
           }
-        } else {
-          console.warn("AI Gateway error, falling back to local legal analyzer:", error);
         }
+
+        if (chunkAnalyses.length > 0) {
+          analysis = mergeAnalyses(chunkAnalyses, data.fileName);
+        }
+      } catch (error) {
+        console.warn("AI Gateway chunked analysis error, falling back to local legal analyzer:", error);
       }
     }
 

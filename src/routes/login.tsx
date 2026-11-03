@@ -7,7 +7,7 @@ import { AuthButton } from "@/components/auth/AuthButton";
 import { AuthFormInput } from "@/components/auth/AuthFormInput";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { lovable } from "@/integrations/lovable";
-import { supabase } from "@/integrations/supabase/client";
+import { isSupabaseConfigured, supabase } from "@/integrations/supabase/client";
 import { friendlyAuthError } from "@/lib/auth-errors";
 
 export const Route = createFileRoute("/login")({
@@ -61,12 +61,25 @@ function LoginPage() {
     }
     if (!result.redirected) await navigate({ to: "/dashboard" });
   }
+  const configured = isSupabaseConfigured();
   return (
     <AuthLayout>
       <div className="text-center">
         <h1 className="text-2xl font-extrabold">Selamat Datang Kembali</h1>
         <p className="mt-2 text-sm text-muted-foreground">Login untuk lanjut ke dashboard</p>
       </div>
+      {!configured && (
+        <div
+          role="status"
+          className="mt-5 rounded-md border border-amber-500/25 bg-amber-500/10 p-3 text-left text-xs leading-relaxed text-amber-800 dark:text-amber-200"
+        >
+          <span className="font-semibold">Layanan Belum Dikonfigurasi:</span> Database dan
+          autentikasi Supabase saat ini belum terhubung. Silakan setel{" "}
+          <code className="font-mono text-[11px] font-bold">SUPABASE_URL</code> dan{" "}
+          <code className="font-mono text-[11px] font-bold">SUPABASE_PUBLISHABLE_KEY</code> di
+          environment untuk mengaktifkan akun.
+        </div>
+      )}
       <form onSubmit={submit} className="mt-7 space-y-5">
         <AuthFormInput
           id="login-email"

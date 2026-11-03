@@ -1,10 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
-import { createOpenAI } from "@ai-sdk/openai";
 import { streamText } from "ai";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Json } from "@/integrations/supabase/types";
-import { createGatewayFetch } from "@/lib/lovable-run-id.server";
+import { getAiClient } from "@/lib/ai-service";
 
 const documentInput = z.object({
   documentId: z.string().uuid().nullable(),
@@ -88,16 +87,10 @@ export const generateLegalDocument = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const key = process.env["LOVABLE_API_KEY"];
+    const provider = getAiClient();
     let content = data.baseContent.trim();
-    if (key) {
+    if (provider) {
       try {
-        const provider = createOpenAI({
-          baseURL: "https://ai.gateway.lovable.dev/v1",
-          apiKey: key,
-          headers: { "Lovable-API-Key": key, "X-Lovable-AIG-SDK": "vercel-ai-sdk" },
-          fetch: createGatewayFetch(),
-        });
         const result = streamText({
           model: provider.responses("openai/gpt-6-astra"),
           providerOptions: {
